@@ -41,6 +41,11 @@ const pool = new Pool({
         location VARCHAR(255)
       );
     `;
+
+    const alterCounselorsTableToAddAvailability = `
+    ALTER TABLE counselors
+    ADD COLUMN IF NOT EXISTS availability JSONB DEFAULT '{}';
+  `;
   
     const createAppointmentsTableQuery = `
       CREATE TABLE IF NOT EXISTS appointments (
@@ -56,14 +61,17 @@ const pool = new Pool({
     `;
   
     const createThoughtDiariesTableQuery = `
-      CREATE TABLE IF NOT EXISTS thought_diaries (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        student_id UUID NOT NULL REFERENCES users(id),
-        entry_date TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
-        content TEXT NOT NULL,
-        tags TEXT[] -- Optional: for categorizing entries
-      );
-    `;
+  CREATE TABLE IF NOT EXISTS thought_diaries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES users(id),
+    entry_date TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+    content TEXT NOT NULL,
+    mood VARCHAR(255),  -- Replacing tags with mood, assuming mood is a single descriptive string
+    title VARCHAR(255) NOT NULL,  -- Adding title column
+    color VARCHAR(255)  -- Adding color column, assumed to be a CSS-compatible color representation
+  );
+`;
+
 
     // Added table creation queries for workouts and exercises
     const createWorkoutsTableQuery = `
@@ -119,6 +127,7 @@ const pool = new Pool({
       await pool.query(enableUUIDExtensionQuery);
       await pool.query(createUsersTableQuery);
       await pool.query(createCounselorsTableQuery);
+      await pool.query(alterCounselorsTableToAddAvailability);
       await pool.query(createAppointmentsTableQuery);
       await pool.query(createThoughtDiariesTableQuery);
       // Execute the newly added table creation queries
@@ -132,6 +141,19 @@ const pool = new Pool({
       process.exit(1);
     }
 }
+// async function dropThoughtDiariesTable() {
+//   const dropTableQuery = `DROP TABLE IF EXISTS thought_diaries;`;
+
+//   try {
+//       await pool.query(dropTableQuery);
+//       console.log("Thought Diaries table dropped successfully.");
+//   } catch (error) {
+//       console.error("Error dropping Thought Diaries table:", error);
+//       process.exit(1);
+//   }
+// }
+
+// dropThoughtDiariesTable();
 
 
   
@@ -522,23 +544,82 @@ app.get('/counselors', async (req, res) => {
   });
   
   
+  app.patch('/counselors/:id/availability', async (req, res) => {
+    const { id } = req.params; // Extracting the counselor ID from the URL parameter
+    const { availability } = req.body; // Extracting availability data from the request body
+
+    // Validate the input data as needed (e.g., ensure availability is properly structured)
+    // For example, check if availability is an object, or more specific validations as needed
+    // console.log('ID:', id); // Debugging output
+    // console.log('Availability:', availability);
+    try {
+        // Update the counselor's availability using the JSONB set function
+        // Ensure the availability data is correctly formatted as a JSON string
+        // The ::jsonb cast is used to ensure the data type matches the column
+        const result = await pool.query(
+            `UPDATE counselors
+            SET availability = $1::jsonb
+            WHERE id = $2
+            RETURNING *;`, // Returning the updated row to send back to the client
+            [JSON.stringify(availability), id] // Using JSON.stringify to ensure the availability is formatted as a JSON string
+        );
+
+        if (result.rows.length === 0) {
+            // No row was updated, which means no counselor was found with the given ID
+            return res.status(404).json({ error: 'Counselor not found.' });
+        }
+
+        // Respond with the updated counselor entry
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error updating counselor availability:', error);
+        res.status(500).json({ error: 'Server error while updating counselor availability.' });
+    }
+});
+
+app.get('/counselors/:id/availability', async (req, res) => {
+  const { id } = req.params; // Extracting the counselor ID from the URL parameter
+
+  try {
+      // Query the database for the counselor's availability using their ID
+      const result = await pool.query(
+          'SELECT availability FROM counselors WHERE id = $1;', 
+          [id]
+      );
+
+      if (result.rows.length === 0) {
+          // If no counselor is found with the given ID, return a 404 not found error
+          return res.status(404).json({ error: 'Counselor not found.' });
+      }
+
+      // Respond with the counselor's availability
+      // Since we're only querying for the availability, result.rows[0] will directly contain the availability JSON
+      res.json(result.rows[0].availability);
+  } catch (error) {
+      console.error('Error retrieving counselor availability:', error);
+      res.status(500).json({ error: 'Server error while fetching counselor availability.' });
+  }
+});
+
 
 //create thought diary
 
 app.post('/thought-diaries', async (req, res) => {
-    const { student_id, content, tags } = req.body; // Assume `tags` is an array of strings
+  // Destructure 'mood' instead of 'tags', along with the other fields
+  const { student_id, content, mood, title, color } = req.body;
 
-    try {
-        const newEntry = await pool.query(
-            'INSERT INTO thought_diaries (student_id, content, tags) VALUES ($1, $2, $3) RETURNING *',
-            [student_id, content, tags]
-        );
-        res.status(201).json(newEntry.rows[0]);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error creating diary entry.' });
-    }
+  try {
+      const newEntry = await pool.query(
+          'INSERT INTO thought_diaries (student_id, content, mood, title, color) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+          [student_id, content, mood, title, color]  
+      );
+      res.status(201).json(newEntry.rows[0]);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Error creating diary entry.' });
+  }
 });
+
 
 
 //List diaries of the student
