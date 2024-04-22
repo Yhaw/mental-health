@@ -84,19 +84,7 @@ const pool = new Pool({
         created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
       );
     `;
-
-    const createExercisesTableQuery = `
-      CREATE TABLE IF NOT EXISTS exercises (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        workout_id UUID NOT NULL REFERENCES workouts(id),
-        name VARCHAR(255) NOT NULL,
-        description TEXT,
-        repetitions INT,
-        sets INT,
-        duration INT, -- Duration in seconds per repetition
-        rest_period INT -- Rest in seconds between sets
-      );
-    `;
+ 
 
     const createStudentWorkoutsTableQuery = `
       CREATE TABLE IF NOT EXISTS student_workouts (
@@ -106,22 +94,25 @@ const pool = new Pool({
         status VARCHAR(50), -- e.g., 'completed', 'pending'
         completed_at TIMESTAMP WITHOUT TIME ZONE,
         feedback TEXT -- Optional feedback after completing the workout
+        
       );
     `;
 
     const createStudentExercisesTableQuery = `
-      CREATE TABLE IF NOT EXISTS student_exercises (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        student_id UUID NOT NULL REFERENCES users(id),
-        exercise_id UUID NOT NULL REFERENCES exercises(id),
-        workout_id UUID NOT NULL REFERENCES workouts(id),
-        completed BOOLEAN NOT NULL DEFAULT FALSE,
-        completion_date TIMESTAMP WITHOUT TIME ZONE,
-        feedback TEXT, -- Optional feedback on the exercise
-        repetitions_completed INT, -- Optional detail for tracking performance
-        sets_completed INT -- Optional detail for tracking performance
-      );
-    `;
+    CREATE TABLE IF NOT EXISTS student_exercises (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      workout_id UUID NOT NULL REFERENCES student_workouts(id),
+      name VARCHAR(255) NOT NULL,
+      description TEXT,
+      repetitions INT,
+      sets INT,
+      duration INT, -- Duration in seconds per set
+      rest_period INT, -- Rest in seconds between sets
+      student_id UUID NOT NULL REFERENCES users(id)
+    );
+  `;
+  
+  
 
     try {
       await pool.query(enableUUIDExtensionQuery);
@@ -132,7 +123,6 @@ const pool = new Pool({
       await pool.query(createThoughtDiariesTableQuery);
       // Execute the newly added table creation queries
       await pool.query(createWorkoutsTableQuery);
-      await pool.query(createExercisesTableQuery);
       await pool.query(createStudentWorkoutsTableQuery);
       await pool.query(createStudentExercisesTableQuery);
       console.log("Database initialization complete with support for users, counselors, appointments, thought diaries, workouts, and exercises.");
@@ -142,7 +132,7 @@ const pool = new Pool({
     }
 }
 // async function dropThoughtDiariesTable() {
-//   const dropTableQuery = `DROP TABLE IF EXISTS thought_diaries;`;
+//   const dropTableQuery = `DROP TABLE IF EXISTS student_exercises;`;
 
 //   try {
 //       await pool.query(dropTableQuery);
@@ -785,104 +775,73 @@ app.delete('/workouts/:id', async (req, res) => {
     }
 });
 
-//add execrise to work out
-app.post('/workouts/:workoutId/exercises', async (req, res) => {
-    const { workoutId } = req.params;
-    const { name, description, repetitions, sets, duration, rest_period } = req.body;
+app.post('/student-workouts/:workoutId/exercises', async (req, res) => {
+  const { workoutId } = req.params;
+  const { name, description, repetitions, sets, duration, rest_period, student_id } = req.body;
 
-    try {
-        const newExercise = await pool.query(
-            'INSERT INTO exercises (workout_id, name, description, repetitions, sets, duration, rest_period) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-            [workoutId, name, description, repetitions, sets, duration, rest_period]
-        );
-        res.status(201).json(newExercise.rows[0]);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error creating exercise.' });
+  try {
+    const newExercise = await pool.query(
+      'INSERT INTO student_exercises (workout_id, name, description, repetitions, sets, duration, rest_period, student_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [workoutId, name, description, repetitions, sets, duration, rest_period, student_id]
+    );
+    res.status(201).json(newExercise.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error creating exercise.' });
+  }
+});
+
+app.get('/student-workouts/:workoutId/exercises', async (req, res) => {
+  const { workoutId } = req.params;
+
+  try {
+    const exercises = await pool.query(
+      'SELECT * FROM student_exercises WHERE workout_id = $1',
+      [workoutId]
+    );
+    res.json(exercises.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error fetching exercises.' });
+  }
+});
+
+app.patch('/student-exercises/:exerciseId', async (req, res) => {
+  const { exerciseId } = req.params;
+  const { name, description, repetitions, sets, duration, rest_period } = req.body;
+
+  try {
+    const updateResult = await pool.query(
+      'UPDATE student_exercises SET name = $1, description = $2, repetitions = $3, sets = $4, duration = $5, rest_period = $6 WHERE id = $7 RETURNING *',
+      [name, description, repetitions, sets, duration, rest_period, exerciseId]
+    );
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Exercise not found.' });
     }
+    res.json(updateResult.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error updating exercise.' });
+  }
 });
 
 
-app.get('/workouts/:workoutId/exercises', async (req, res) => {
-    const { workoutId } = req.params;
+app.delete('/student-exercises/:exerciseId', async (req, res) => {
+  const { exerciseId } = req.params;
 
-    try {
-        const exercises = await pool.query('SELECT * FROM exercises WHERE workout_id = $1', [workoutId]);
-        res.json(exercises.rows);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error fetching exercises.' });
+  try {
+    const deleteResult = await pool.query(
+      'DELETE FROM student_exercises WHERE id = $1 RETURNING *',
+      [exerciseId]
+    );
+    if (deleteResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Exercise not found.' });
     }
-});
-
-
-app.patch('/exercises/:exerciseId', async (req, res) => {
-    const { exerciseId } = req.params;
-    const { name, description, repetitions, sets, duration, rest_period } = req.body;
-
-    try {
-        const updateResult = await pool.query(
-            'UPDATE exercises SET name = COALESCE($1, name), description = COALESCE($2, description), repetitions = COALESCE($3, repetitions), sets = COALESCE($4, sets), duration = COALESCE($5, duration), rest_period = COALESCE($6, rest_period) WHERE id = $7 RETURNING *',
-            [name, description, repetitions, sets, duration, rest_period, exerciseId]
-        );
-
-        if (updateResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Exercise not found.' });
-        }
-
-        res.json(updateResult.rows[0]);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error updating exercise.' });
-    }
-});
-
-
-app.delete('/exercises/:exerciseId', async (req, res) => {
-    const { exerciseId } = req.params;
-
-    try {
-        const deleteResult = await pool.query('DELETE FROM exercises WHERE id = $1 RETURNING *', [exerciseId]);
-
-        if (deleteResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Exercise not found.' });
-        }
-
-        res.json({ message: 'Exercise deleted successfully.', deletedExercise: deleteResult.rows[0] });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error deleting exercise.' });
-    }
-});
-
-app.post('/student-exercises/complete', async (req, res) => {
-    const { student_id, exercise_id, workout_id, feedback, repetitions_completed, sets_completed } = req.body;
-
-    try {
-        const completion = await pool.query(
-            'INSERT INTO student_exercises (student_id, exercise_id, workout_id, completed, completion_date, feedback, repetitions_completed, sets_completed) VALUES ($1, $2, $3, TRUE, NOW(), $4, $5, $6) RETURNING *',
-            [student_id, exercise_id, workout_id, feedback, repetitions_completed, sets_completed]
-        );
-        res.status(201).json(completion.rows[0]);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error marking exercise as completed.' });
-    }
-});
-
-app.get('/student-workouts/:workoutId/completions/:studentId', async (req, res) => {
-    const { workoutId, studentId } = req.params;
-
-    try {
-        const completions = await pool.query(
-            'SELECT * FROM student_exercises WHERE workout_id = $1 AND student_id = $2 AND completed = TRUE',
-            [workoutId, studentId]
-        );
-        res.json(completions.rows);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error fetching completed exercises.' });
-    }
+    res.json({ message: 'Exercise deleted successfully.', deletedExercise: deleteResult.rows[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error deleting exercise.' });
+  }
 });
 
 // const PORT = process.env.PORT || 3000;
