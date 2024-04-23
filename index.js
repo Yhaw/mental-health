@@ -775,6 +775,74 @@ app.delete('/workouts/:id', async (req, res) => {
     }
 });
 
+
+// Create a workout for a student
+app.post('/student-workouts', async (req, res) => {
+  const { student_id, workout_id } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO student_workouts (student_id, workout_id, status) VALUES ($1, $2, $3) RETURNING *',
+      [student_id, workout_id, 'pending']
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error creating student workout.' });
+  }
+});
+
+// Read all workouts for a student
+app.get('/student-workouts/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM student_workouts WHERE student_id = $1',
+      [studentId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error fetching student workouts.' });
+  }
+});
+
+// Update a workout for a student
+app.patch('/student-workouts/:workoutId', async (req, res) => {
+  const { workoutId } = req.params;
+  const { status, feedback } = req.body;
+  try {
+    const result = await pool.query(
+      'UPDATE student_workouts SET status = $1, feedback = $2, completed_at = NOW() WHERE id = $3 RETURNING *',
+      [status, feedback, workoutId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Student workout not found.' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error updating student workout.' });
+  }
+});
+
+// Delete a workout for a student
+app.delete('/student-workouts/:workoutId', async (req, res) => {
+  const { workoutId } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM student_workouts WHERE id = $1 RETURNING *',
+      [workoutId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Student workout not found.' });
+    }
+    res.json({ message: 'Student workout deleted successfully.', deletedWorkout: result.rows[0] });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error deleting student workout.' });
+  }
+});
+
 app.post('/student-workouts/:workoutId/exercises', async (req, res) => {
   const { workoutId } = req.params;
   const { name, description, repetitions, sets, duration, rest_period, student_id } = req.body;
