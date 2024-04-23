@@ -206,7 +206,8 @@ app.post('/login', async (req, res) => {
       // Send back the user ID (and any other public user information you wish to include)
       res.json({
         message: 'Login successful!',
-        userId: user.id
+        userId: user.id,
+        name: user.first_name
       });
     } catch (error) {
       console.error(error);
